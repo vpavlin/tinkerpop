@@ -24,6 +24,8 @@ from unittest import TestCase
 
 import pytest
 
+from tornado import ioloop, gen
+
 from gremlin_python import statics
 from gremlin_python.statics import long
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
@@ -188,11 +190,28 @@ class TestDriverRemoteConnection(TestCase):
             t.side_effects.value_lambda('b')
         connection.close()
 
+    def test_promise(self):
+        loop = ioloop.IOLoop.current()
+        connection = DriverRemoteConnection('ws://localhost:8182/gremlin', 'g')
+        g = Graph().traversal().withRemote(connection)
+
+        @gen.coroutine
+        def go():
+            future_traversal = g.V().promise(lambda x: x.toList())
+            assert not future_traversal.done()
+            resp = yield future_traversal
+            assert future_traversal.done()
+            assert len(resp) == 6
+            count = yield g.V().count().promise(lambda x: x.next())
+            assert count == 6
+
+        loop.run_sync(go)
+
 
 if __name__ == '__main__':
     test = False
     try:
-        connection = DriverRemoteConnection('ws://localhost:45940/gremlin', 'g')
+        connection = DriverRemoteConnection('ws://localhost:8182/gremlin', 'g')
         test = True
         connection.close()
     except:

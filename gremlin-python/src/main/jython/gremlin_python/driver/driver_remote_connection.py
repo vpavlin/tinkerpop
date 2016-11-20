@@ -56,6 +56,11 @@ class DriverRemoteConnection(RemoteConnection):
         side_effect_close = lambda: self._loop.run_sync(lambda: self.submit_sideEffect_close(request_id))
         return RemoteTraversal(iter(traversers), RemoteTraversalSideEffects(side_effect_keys, side_effect_value, side_effect_close))
 
+    def submit_async(self, bytecode):
+        request_id = str(uuid.uuid4())
+        # Doesn't implement side effects
+        return self.submit_traversal_bytecode(request_id, bytecode)
+
     @gen.coroutine
     def submit_traversal_bytecode(self, request_id, bytecode):
         message = {
