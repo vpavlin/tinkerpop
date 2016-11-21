@@ -192,7 +192,7 @@ class TestDriverRemoteConnection(TestCase):
 
     def test_promise(self):
         loop = ioloop.IOLoop.current()
-        connection = DriverRemoteConnection('ws://localhost:8182/gremlin', 'g')
+        connection = DriverRemoteConnection('ws://localhost:45940/gremlin', 'g')
         g = Graph().traversal().withRemote(connection)
 
         @gen.coroutine
@@ -211,7 +211,7 @@ class TestDriverRemoteConnection(TestCase):
 if __name__ == '__main__':
     test = False
     try:
-        connection = DriverRemoteConnection('ws://localhost:8182/gremlin', 'g')
+        connection = DriverRemoteConnection('ws://localhost:45940/gremlin', 'g')
         test = True
         connection.close()
     except:
