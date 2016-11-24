@@ -38,6 +38,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.Requir
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Partitioner;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -131,6 +132,11 @@ public class GraphTraversalSource implements TraversalSource {
     @SuppressWarnings({"unchecked"})
     public GraphTraversalSource withoutStrategies(final Class<? extends TraversalStrategy>... traversalStrategyClasses) {
         return (GraphTraversalSource) TraversalSource.super.withoutStrategies(traversalStrategyClasses);
+    }
+
+    @Override
+    public GraphTraversalSource withPartitioner(final Partitioner partitioner) {
+        return (GraphTraversalSource) TraversalSource.super.withPartitioner(partitioner);
     }
 
     @Override

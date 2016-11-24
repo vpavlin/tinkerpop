@@ -26,7 +26,9 @@ import org.apache.tinkerpop.gremlin.process.computer.traversal.strategy.decorati
 import org.apache.tinkerpop.gremlin.process.remote.RemoteConnection;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SackStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SideEffectStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.finalization.PartitionerStrategy;
 import org.apache.tinkerpop.gremlin.structure.Graph;
+import org.apache.tinkerpop.gremlin.structure.Partitioner;
 import org.apache.tinkerpop.gremlin.util.function.ConstantSupplier;
 
 import java.io.Serializable;
@@ -91,6 +93,7 @@ public interface TraversalSource extends Cloneable, AutoCloseable {
         public static final String withComputer = "withComputer";
         public static final String withSideEffect = "withSideEffect";
         public static final String withRemote = "withRemote";
+        public static final String withPartitioner = "withPartitioner";
     }
 
     /////////////////////////////
@@ -124,6 +127,13 @@ public interface TraversalSource extends Cloneable, AutoCloseable {
         final TraversalSource clone = this.clone();
         clone.getStrategies().removeStrategies(traversalStrategyClasses);
         clone.getBytecode().addSource(TraversalSource.Symbols.withoutStrategies, traversalStrategyClasses);
+        return clone;
+    }
+
+    public default TraversalSource withPartitioner(final Partitioner partitioner) {
+        final TraversalSource clone = this.clone();
+        clone.getStrategies().addStrategies(new PartitionerStrategy(partitioner));
+        clone.getBytecode().addSource(Symbols.withPartitioner, partitioner);
         return clone;
     }
 

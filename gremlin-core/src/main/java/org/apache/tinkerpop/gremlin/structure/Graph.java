@@ -28,6 +28,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.engine.ComputerTraversalEn
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.io.IoRegistry;
 import org.apache.tinkerpop.gremlin.structure.util.FeatureDescriptor;
+import org.apache.tinkerpop.gremlin.structure.util.GlobalPartitioner;
 import org.apache.tinkerpop.gremlin.structure.util.GraphFactory;
 import org.apache.tinkerpop.gremlin.structure.util.Host;
 import org.javatuples.Pair;
@@ -283,6 +284,18 @@ public interface Graph extends AutoCloseable, Host {
      * @return an {@link Iterator} of edges that match the provided edge ids
      */
     public Iterator<Edge> edges(final Object... edgeIds);
+
+    /**
+     * Get the physical {@link Partitioner}s associated with the graph.
+     * For distributed graph systems, this {@link Partitioner} typically maintains the physical subgraph partitions.
+     * For single-machine graph systems, this {@link Partitioner} typically maintains a single partition.
+     * The default implementation returns a {@link GlobalPartitioner} which has a single partition.
+     *
+     * @return the {@link Partitioner} denoting the physical partition of the graph.
+     */
+    public default Partitioner partitioner() {
+        return new GlobalPartitioner(this);
+    }
 
     /**
      * Configure and control the transactions for those graphs that support this feature.  Note that this method does
