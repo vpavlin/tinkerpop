@@ -21,15 +21,14 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 
 import akka.actor.ActorSystem;
 import akka.actor.Props;
-import com.typesafe.config.Config;
-import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.io.gryo.GryoIo;
 import org.apache.tinkerpop.gremlin.structure.util.HashPartitioner;
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
 
-import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.as;
+import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.both;
 
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
@@ -41,28 +40,21 @@ public final class TinkerActorSystem {
     private final ActorSystem system;
 
     public TinkerActorSystem(final Traversal.Admin<?, ?> traversal) {
-        final Config config;
-
         this.system = ActorSystem.create("traversal-" + traversal.hashCode());
-        this.system.actorOf(Props.create(MasterTraversalActor.class, traversal, new HashPartitioner(traversal.getGraph().get().partitioner(), 5)),"master");
-    }
-
-    public void close() {
-        this.system.terminate();
+        this.system.actorOf(Props.create(MasterTraversalActor.class, traversal, new HashPartitioner(traversal.getGraph().get().partitioner(), 10)), "master");
     }
 
     //////////////
 
     public static void main(String args[]) throws Exception {
         final Graph graph = TinkerGraph.open();
-        graph.io(GryoIo.build()).readGraph("data/tinkerpop-modern.kryo");
-        final Traversal.Admin<?, ?> traversal = graph.traversal().withComputer().V().match(
-                as("a").out("created").as("b"),
-                as("b").in("created").as("c"),
-                as("b").has("name", P.eq("lop"))).where("a", P.neq("c")).select("a", "b", "c").by("name").asAdmin();
-        final TinkerActorSystem system = new TinkerActorSystem(traversal);
-        Thread.sleep(1000);
-        system.close();
+        graph.io(GryoIo.build()).readGraph("data/grateful-dead.kryo");
+        /*final Traversal.Admin<?, ?> traversal = graph.traversal().withComputer().V().match(
+                as("a").out().as("b"),
+                as("b").in().as("c"),
+                as("b").has("name", P.eq("lop"))).where("a", P.neq("c")).select("a", "b", "c").by("name").asAdmin();*/
+        final Traversal.Admin<?, ?> traversal = graph.traversal().withComputer().V().repeat(both()).times(2).groupCount().select(Column.keys).unfold().valueMap().count().asAdmin();
+        new TinkerActorSystem(traversal);
     }
 
 

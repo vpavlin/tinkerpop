@@ -28,11 +28,13 @@ import akka.dispatch.ProducesMessageQueue;
 import com.typesafe.config.Config;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
 import scala.Option;
 
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
@@ -40,43 +42,56 @@ import java.util.concurrent.atomic.AtomicReference;
 public class TraverserMailbox implements MailboxType, ProducesMessageQueue<TraverserMailbox.TraverserMessageQueue> {
 
     public static class TraverserMessageQueue implements MessageQueue, TraverserSetSemantics {
-        private final AtomicReference<TraverserSet<?>> traverserSet = new AtomicReference<>(new TraverserSet<>());
+        private final TraverserSet<?> traverserSet = new TraverserSet<>(new ConcurrentHashMap<>());
+        private final Queue<Envelope> barrierSyncs = new ConcurrentLinkedQueue<>();
+        private final Queue<Envelope> haltSyncs = new ConcurrentLinkedQueue<>();
         private final Queue<Envelope> queue = new ConcurrentLinkedQueue<>();
 
         // these must be implemented; queue used as example
         public void enqueue(final ActorRef receiver, final Envelope handle) {
             if (handle.message() instanceof Traverser.Admin)
-                this.traverserSet.get().add((Traverser.Admin) handle.message());
+                this.traverserSet.offer((Traverser.Admin) handle.message());
+            else if (handle.message() instanceof BarrierSynchronizationMessage)
+                this.barrierSyncs.offer(handle);
+            else if (handle.message() instanceof HaltSynchronizationMessage)
+                this.haltSyncs.offer(handle);
             else
-                queue.offer(handle);
+                this.queue.offer(handle);
         }
 
         public Envelope dequeue() {
-            return !this.queue.isEmpty() ? this.queue.poll() : new Envelope(this.traverserSet.get().poll(), ActorRef.noSender());
+            if (!this.queue.isEmpty())
+                return this.queue.poll();
+            else if (!this.traverserSet.isEmpty())
+                return new Envelope(this.traverserSet.poll(), ActorRef.noSender());
+            else if (!this.barrierSyncs.isEmpty())
+                return this.barrierSyncs.poll();
+            else
+                return this.haltSyncs.poll();
         }
 
         public int numberOfMessages() {
-            return this.queue.size() + this.traverserSet.get().size();
+            return this.queue.size() + this.traverserSet.size() + this.barrierSyncs.size() + this.haltSyncs.size();
         }
 
         public boolean hasMessages() {
-            return !this.queue.isEmpty() || !this.traverserSet.get().isEmpty();
+            return !this.queue.isEmpty() || !this.traverserSet.isEmpty() || !this.barrierSyncs.isEmpty() || !this.haltSyncs.isEmpty();
         }
 
         public void cleanUp(final ActorRef owner, final MessageQueue deadLetters) {
-            for (Envelope handle : this.queue) {
+            for (final Envelope handle : this.queue) {
                 deadLetters.enqueue(owner, handle);
             }
         }
     }
 
     // This constructor signature must exist, it will be called by Akka
-    public TraverserMailbox(ActorSystem.Settings settings, Config config) {
+    public TraverserMailbox(final ActorSystem.Settings settings, final Config config) {
         // put your initialization code here
     }
 
     // The create method is called to create the MessageQueue
-    public MessageQueue create(Option<ActorRef> owner, Option<ActorSystem> system) {
+    public MessageQueue create(final Option<ActorRef> owner, final Option<ActorSystem> system) {
         return new TraverserMessageQueue();
     }
 

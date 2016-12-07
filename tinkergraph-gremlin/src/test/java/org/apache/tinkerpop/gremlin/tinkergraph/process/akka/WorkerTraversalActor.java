@@ -20,16 +20,21 @@
 package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 
 import akka.actor.AbstractActor;
+import akka.actor.ActorRef;
 import akka.dispatch.RequiresMessageQueue;
 import akka.japi.pf.ReceiveBuilder;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
+import org.apache.tinkerpop.gremlin.process.traversal.step.Barrier;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalMatrix;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Partition;
 import org.apache.tinkerpop.gremlin.structure.Partitioner;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
 
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
@@ -40,6 +45,7 @@ public final class WorkerTraversalActor extends AbstractActor implements
     private final TraversalMatrix<?, ?> matrix;
     private final Partition partition;
     private final Partitioner partitioner;
+
 
     public WorkerTraversalActor(final Traversal.Admin<?, ?> traversal, final Partition partition, final Partitioner partitioner) {
         System.out.println("worker[created]: " + self().path());
@@ -56,23 +62,36 @@ public final class WorkerTraversalActor extends AbstractActor implements
                         this.processTraverser(step.next());
                     }
                 }).
-                match(Traverser.Admin.class, this::processTraverser).build()
+                match(BarrierSynchronizationMessage.class, barrierSync -> {
+                    final Barrier step = this.matrix.getStepById(barrierSync.getStepId());
+                    while (step.hasNextBarrier()) {
+                        sender().tell(new BarrierMessage(step), self());
+                    }
+                    sender().tell(new BarrierSynchronizationMessage(step),self());
+                }).
+                match(HaltSynchronizationMessage.class, haltSync -> {
+                    sender().tell(new HaltSynchronizationMessage(), self());
+                }).
+                match(Traverser.Admin.class, traverser -> {
+                    this.processTraverser(traverser);
+                }).build()
         );
     }
 
     private void processTraverser(final Traverser.Admin traverser) {
         if (traverser.isHalted())
-            context().actorSelection("../").tell(traverser, self());
-        else {
+            context().parent().tell(traverser, ActorRef.noSender());
+        else if (traverser.get() instanceof Element && !this.partition.contains((Element) traverser.get())) {
+            final Partition otherPartition = this.partitioner.getPartition((Element) traverser.get());
+            context().actorSelection("../worker-" + otherPartition.hashCode()).tell(traverser, self());
+        } else {
             final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(traverser.getStepId());
             step.addStart(traverser);
-            while (step.hasNext()) {
-                final Traverser.Admin<?> end = step.next();
-                if (end.get() instanceof Element && !this.partition.contains((Element) end.get())) {
-                    final Partition otherPartition = this.partitioner.getPartition((Element) end.get());
-                    context().actorSelection("../worker-" + otherPartition.hashCode()).tell(end, self());
-                } else {
-                    this.processTraverser(end);
+            if (step instanceof Barrier) {
+                context().parent().tell(new BarrierMessage((Barrier) step), self());
+            } else {
+                while (step.hasNext()) {
+                    this.processTraverser(step.next());
                 }
             }
         }

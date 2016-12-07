@@ -40,13 +40,18 @@ import java.util.Spliterator;
  */
 public class TraverserSet<S> extends AbstractSet<Traverser.Admin<S>> implements Set<Traverser.Admin<S>>, Queue<Traverser.Admin<S>>, Serializable {
 
-    private final Map<Traverser.Admin<S>, Traverser.Admin<S>> map = new LinkedHashMap<>();
+    private final Map<Traverser.Admin<S>, Traverser.Admin<S>> map;
 
     public TraverserSet() {
+        this.map = new LinkedHashMap<>();
+    }
 
+    public TraverserSet(final Map<Traverser.Admin<S>, Traverser.Admin<S>> internalMap) {
+        this.map = internalMap;
     }
 
     public TraverserSet(final Traverser.Admin<S> traverser) {
+        this();
         this.map.put(traverser, traverser);
     }
 
