@@ -77,6 +77,28 @@ class Traversal(object):
                 except StopIteration: return tempList
                 tempList.append(temp)
             return tempList
+    def promise(self, cb=None):
+        self.traversal_strategies.apply_async_strategies(self)
+        future_traversers = self.traversers
+        future = type(future_traversers)()
+        def process(f):
+            try:
+                traversers = f.result()
+            except Exception as e:
+                future.set_exception(e)
+            else:
+                self.traversers = iter(traversers)
+                if cb:
+                    try:
+                        result = cb(self)
+                    except Exception as e:
+                        future.set_exception(e)
+                    else:
+                        future.set_result(result)
+                else:
+                    future.set_result(self)
+        future_traversers.add_done_callback(process)
+        return future
 
 
 Barrier = Enum('Barrier', 'normSack')
@@ -117,10 +139,6 @@ statics.add_static('valueIncr', Order.valueIncr)
 statics.add_static('keyDecr', Order.keyDecr)
 statics.add_static('valueDecr', Order.valueDecr)
 statics.add_static('shuffle', Order.shuffle)
-
-Pick = Enum('Pick', 'any none')
-statics.add_static('any', Pick.any)
-statics.add_static('none', Pick.none)
 
 Pop = Enum('Pop', 'all_ first last')
 statics.add_static('first', Pop.first)
@@ -286,6 +304,9 @@ class TraversalStrategies(object):
     def apply_strategies(self, traversal):
         for traversal_strategy in self.traversal_strategies:
             traversal_strategy.apply(traversal)
+    def apply_async_strategies(self, traversal):
+        for traversal_strategy in self.traversal_strategies:
+            traversal_strategy.apply_async(traversal)
     def __repr__(self):
         return str(self.traversal_strategies)
 
@@ -295,6 +316,8 @@ class TraversalStrategy(object):
         self.strategy_name = type(self).__name__ if strategy_name is None else strategy_name
         self.configuration = {} if configuration is None else configuration
     def apply(self, traversal):
+        return
+    def apply_async(self, traversal):
         return
     def __eq__(self, other):
         return isinstance(other, self.__class__)
@@ -373,4 +396,3 @@ class Binding(object):
     def __init__(self,key,value):
         self.key = key
         self.value = value
-
