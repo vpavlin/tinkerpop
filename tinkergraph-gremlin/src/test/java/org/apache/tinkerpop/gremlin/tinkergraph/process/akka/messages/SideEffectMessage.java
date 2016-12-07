@@ -19,18 +19,34 @@
 
 package org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages;
 
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
-public final class HaltSynchronizationMessage implements SynchronizationMessage {
+public final class SideEffectMessage {
 
-    private final boolean halt;
+    private final String sideEffectKey;
+    private final Object sideEffect;
 
-    public HaltSynchronizationMessage(final boolean halt) {
-        this.halt = halt;
+    public SideEffectMessage(final String sideEffectKey, final Object sideEffect) {
+        this.sideEffect = sideEffect;
+        this.sideEffectKey = sideEffectKey;
     }
 
-    public boolean isHalt() {
-        return this.halt;
+    public void setSideEffect(final Traversal.Admin<?, ?> traversal) {
+        traversal.getSideEffects().set(this.sideEffectKey, this.sideEffect);
+    }
+
+    public void addSideEffect(final Traversal.Admin<?, ?> traversal) {
+        traversal.getSideEffects().add(this.sideEffectKey, this.sideEffect);
+    }
+
+    public String getKey() {
+        return this.sideEffectKey;
+    }
+
+    public Object getValue() {
+        return this.sideEffect;
     }
 }

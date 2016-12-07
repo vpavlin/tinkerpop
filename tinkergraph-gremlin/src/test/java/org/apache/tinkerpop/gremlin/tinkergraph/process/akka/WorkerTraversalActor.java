@@ -35,6 +35,7 @@ import org.apache.tinkerpop.gremlin.structure.Partitioner;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMessage;
 
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
@@ -45,11 +46,13 @@ public final class WorkerTraversalActor extends AbstractActor implements
     private final TraversalMatrix<?, ?> matrix;
     private final Partition partition;
     private final Partitioner partitioner;
+    private boolean sentHaltMessage = false;
 
 
     public WorkerTraversalActor(final Traversal.Admin<?, ?> traversal, final Partition partition, final Partitioner partitioner) {
         System.out.println("worker[created]: " + self().path());
         this.matrix = new TraversalMatrix<>(traversal);
+        this.matrix.getTraversal().setSideEffects(new DistributedTraversalSideEffects(this.matrix.getTraversal().getSideEffects(), context()));
         this.partition = partition;
         this.partitioner = partitioner;
         ((GraphStep) traversal.getStartStep()).setIteratorSupplier(partition::vertices);
@@ -67,12 +70,18 @@ public final class WorkerTraversalActor extends AbstractActor implements
                     while (step.hasNextBarrier()) {
                         sender().tell(new BarrierMessage(step), self());
                     }
-                    sender().tell(new BarrierSynchronizationMessage(step),self());
+                    sender().tell(new BarrierSynchronizationMessage(step), self());
+                }).
+                match(SideEffectMessage.class, sideEffect -> {
+                    sideEffect.setSideEffect(this.matrix.getTraversal());
                 }).
                 match(HaltSynchronizationMessage.class, haltSync -> {
-                    sender().tell(new HaltSynchronizationMessage(), self());
+                    sender().tell(new HaltSynchronizationMessage(true), self());
                 }).
                 match(Traverser.Admin.class, traverser -> {
+                    if (this.sentHaltMessage) {
+                        context().parent().tell(new HaltSynchronizationMessage(false), self());
+                    }
                     this.processTraverser(traverser);
                 }).build()
         );

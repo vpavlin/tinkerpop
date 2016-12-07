@@ -37,6 +37,7 @@ import org.apache.tinkerpop.gremlin.structure.Partitioner;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMessage;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -48,12 +49,11 @@ import java.util.Map;
  */
 public final class MasterTraversalActor extends AbstractActor implements RequiresMessageQueue<TraverserMailbox.TraverserSetSemantics> {
 
-    private Traversal.Admin<?, ?> traversal;
-    private TraversalMatrix<?, ?> matrix;
+    private final Traversal.Admin<?, ?> traversal;
+    private final TraversalMatrix<?, ?> matrix;
     private final Partitioner partitioner;
     private List<ActorPath> workers;
-
-    private Map<String, Integer> responseCounter = new HashMap<>();
+    private final Map<String, Integer> synchronizationCounters = new HashMap<>();
 
     public MasterTraversalActor(final Traversal.Admin<?, ?> traversal, final Partitioner partitioner) {
         System.out.println("master[created]: " + self().path());
@@ -62,12 +62,6 @@ public final class MasterTraversalActor extends AbstractActor implements Require
         this.matrix = new TraversalMatrix<>(this.traversal);
         this.partitioner = partitioner;
         this.initializeWorkers();
-
-        /*context().system().scheduler().schedule(
-                Duration.create(1, TimeUnit.NANOSECONDS),
-                Duration.create(1, TimeUnit.NANOSECONDS),
-                () -> self().tell(System.currentTimeMillis(), ActorRef.noSender()),
-                context().system().dispatcher());*/
 
         receive(ReceiveBuilder.
                 match(Traverser.Admin.class, traverser -> {
@@ -79,9 +73,9 @@ public final class MasterTraversalActor extends AbstractActor implements Require
                     broadcast(new BarrierSynchronizationMessage(barrierStep));
                 }).
                 match(BarrierSynchronizationMessage.class, barrierSync -> {
-                    final Integer counter = this.responseCounter.get(barrierSync.getStepId());
+                    final Integer counter = this.synchronizationCounters.get(barrierSync.getStepId());
                     final int newCounter = null == counter ? 1 : counter + 1;
-                    this.responseCounter.put(barrierSync.getStepId(), newCounter);
+                    this.synchronizationCounters.put(barrierSync.getStepId(), newCounter);
                     if (newCounter == this.workers.size()) {
                         final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(barrierSync.getStepId());
                         while (step.hasNext()) {
@@ -89,12 +83,21 @@ public final class MasterTraversalActor extends AbstractActor implements Require
                         }
                     }
                 }).
+                match(SideEffectMessage.class, sideEffect -> {
+                    sideEffect.addSideEffect(this.traversal);
+                    this.broadcast(new SideEffectMessage(sideEffect.getKey(), sideEffect.getValue()));
+                }).
                 match(HaltSynchronizationMessage.class, haltSync -> {
-                    final Integer counter = this.responseCounter.get(Traverser.Admin.HALT);
-                    final int newCounter = null == counter ? 1 : counter + 1;
-                    this.responseCounter.put(Traverser.Admin.HALT, newCounter);
-                    if (newCounter == this.workers.size()) {
-                        context().system().terminate();
+                    if (haltSync.isHalt()) {
+                        final Integer counter = this.synchronizationCounters.get(Traverser.Admin.HALT);
+                        final int newCounter = null == counter ? 1 : counter + 1;
+                        this.synchronizationCounters.put(Traverser.Admin.HALT, newCounter);
+                        if (newCounter == this.workers.size()) {
+                            context().system().terminate();
+                        }
+                    } else {
+                        this.synchronizationCounters.remove(Traverser.Admin.HALT);
+                        this.broadcast(new HaltSynchronizationMessage(true));
                     }
                 }).build());
     }
@@ -113,18 +116,18 @@ public final class MasterTraversalActor extends AbstractActor implements Require
 
     private void broadcast(final Object message) {
         for (final ActorPath worker : this.workers) {
-            context().actorSelection(worker).tell(message,self());
+            context().actorSelection(worker).tell(message, self());
         }
     }
 
     private void processTraverser(final Traverser.Admin traverser) {
         if (traverser.isHalted()) {
             System.out.println("master[result]: " + traverser);
-            broadcast(new HaltSynchronizationMessage());
+            broadcast(new HaltSynchronizationMessage(true));
         } else {
             if (traverser.get() instanceof Element) {
                 final Partition otherPartition = this.partitioner.getPartition((Element) traverser.get());
-                context().actorSelection("worker-" + otherPartition.hashCode()).tell(traverser,self());
+                context().actorSelection("worker-" + otherPartition.hashCode()).tell(traverser, self());
             } else {
                 final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(traverser.getStepId());
                 step.addStart(traverser);

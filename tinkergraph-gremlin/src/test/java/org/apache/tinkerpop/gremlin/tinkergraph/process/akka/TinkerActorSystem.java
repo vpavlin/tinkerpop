@@ -53,7 +53,7 @@ public final class TinkerActorSystem {
                 as("a").out().as("b"),
                 as("b").in().as("c"),
                 as("b").has("name", P.eq("lop"))).where("a", P.neq("c")).select("a", "b", "c").by("name").asAdmin();*/
-        final Traversal.Admin<?, ?> traversal = graph.traversal().withComputer().V().repeat(both()).times(2).groupCount().select(Column.keys).unfold().valueMap().count().asAdmin();
+        final Traversal.Admin<?, ?> traversal = graph.traversal().withComputer().V().repeat(both()).times(2).groupCount().by("name").asAdmin();
         new TinkerActorSystem(traversal);
     }
 
