@@ -30,7 +30,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMergeMessage;
 import scala.Option;
 
 import java.util.Queue;
@@ -57,7 +57,7 @@ public final class TraverserMailbox implements MailboxType, ProducesMessageQueue
         public void enqueue(final ActorRef receiver, final Envelope handle) {
             if (handle.message() instanceof Traverser.Admin)
                 this.traverserSet.offer((Traverser.Admin) handle.message());
-            else if (handle.message() instanceof SideEffectMessage)
+            else if (handle.message() instanceof SideEffectMergeMessage)
                 this.queue.offer(handle);
             else if (handle.message() instanceof BarrierSynchronizationMessage)
                 this.barrierSyncs.offer(handle);

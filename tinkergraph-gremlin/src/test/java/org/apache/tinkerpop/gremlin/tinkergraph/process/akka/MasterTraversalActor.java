@@ -22,22 +22,27 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 import akka.actor.AbstractActor;
 import akka.actor.ActorPath;
 import akka.actor.ActorRef;
+import akka.actor.ActorSelection;
 import akka.actor.Props;
 import akka.dispatch.RequiresMessageQueue;
 import akka.japi.pf.ReceiveBuilder;
 import org.apache.tinkerpop.gremlin.process.computer.traversal.step.map.TraversalVertexProgramStep;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.Barrier;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.ComputerVerificationStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.StandardVerificationStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalMatrix;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Partition;
 import org.apache.tinkerpop.gremlin.structure.Partitioner;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierMergeMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMergeMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.StartSynchronizationMessage;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -54,11 +59,15 @@ public final class MasterTraversalActor extends AbstractActor implements Require
     private final Traversal.Admin<?, ?> traversal;
     private final TraversalMatrix<?, ?> matrix;
     private final Partitioner partitioner;
-    private List<ActorPath> workers;
+    private List<ActorSelection> workers;
     private final Map<String, Set<ActorPath>> synchronizationLocks = new HashMap<>();
 
     public MasterTraversalActor(final Traversal.Admin<?, ?> traversal, final Partitioner partitioner) {
         System.out.println("master[created]: " + self().path());
+        final TraversalStrategies strategies = traversal.getStrategies().clone();
+        strategies.removeStrategies(ComputerVerificationStrategy.class, StandardVerificationStrategy.class);
+        strategies.addStrategies(ComputerActivationStrategy.instance());
+        traversal.setStrategies(strategies);
         traversal.applyStrategies();
         this.traversal = ((TraversalVertexProgramStep) traversal.getStartStep()).computerTraversal.get();
         this.matrix = new TraversalMatrix<>(this.traversal);
@@ -69,7 +78,7 @@ public final class MasterTraversalActor extends AbstractActor implements Require
                 match(Traverser.Admin.class, traverser -> {
                     this.processTraverser(traverser);
                 }).
-                match(BarrierMessage.class, barrier -> {
+                match(BarrierMergeMessage.class, barrier -> {
                     final Barrier barrierStep = ((Barrier) this.matrix.getStepById(barrier.getStepId()));
                     barrierStep.addBarrier(barrier.getBarrier());
                     broadcast(new BarrierSynchronizationMessage(barrierStep, true));
@@ -89,9 +98,9 @@ public final class MasterTraversalActor extends AbstractActor implements Require
                         }
                     }
                 }).
-                match(SideEffectMessage.class, sideEffect -> {
-                    this.traversal.getSideEffects().add(sideEffect.getKey(),sideEffect.getValue());
-                    //this.broadcast(new SideEffectMessage(sideEffect.getKey(), sideEffect.getValue()));
+                match(SideEffectMergeMessage.class, sideEffect -> {
+                    this.traversal.getSideEffects().add(sideEffect.getKey(), sideEffect.getValue());
+                    //this.broadcast(new SideEffectMergeMessage(sideEffect.getKey(), sideEffect.getValue()));
                 }).
                 match(HaltSynchronizationMessage.class, haltSync -> {
                     Set<ActorPath> locks = this.synchronizationLocks.get(Traverser.Admin.HALT);
@@ -115,16 +124,16 @@ public final class MasterTraversalActor extends AbstractActor implements Require
         this.workers = new ArrayList<>(partitions.size());
         for (final Partition partition : partitions) {
             final ActorRef worker = context().actorOf(Props.create(WorkerTraversalActor.class, this.traversal.clone(), partition, this.partitioner), "worker-" + partition.hashCode());
-            this.workers.add(worker.path());
+            this.workers.add(context().actorSelection(worker.path()));
         }
-        for (final ActorPath worker : this.workers) {
-            context().actorSelection(worker).tell(TinkerActorSystem.State.START, self());
+        for (final ActorSelection worker : this.workers) {
+            worker.tell(StartSynchronizationMessage.instance(), self());
         }
     }
 
     private void broadcast(final Object message) {
-        for (final ActorPath worker : this.workers) {
-            context().actorSelection(worker).tell(message, self());
+        for (final ActorSelection worker : this.workers) {
+            worker.tell(message, self());
         }
     }
 

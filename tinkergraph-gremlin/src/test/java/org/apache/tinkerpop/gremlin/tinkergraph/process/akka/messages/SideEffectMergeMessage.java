@@ -19,29 +19,24 @@
 
 package org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages;
 
-import org.apache.tinkerpop.gremlin.process.traversal.Step;
-import org.apache.tinkerpop.gremlin.process.traversal.step.Barrier;
-
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
-public final class BarrierMessage {
+public final class SideEffectMergeMessage {
 
-    private final Object barrier;
-    private final String stepId;
+    private final String sideEffectKey;
+    private final Object sideEffect;
 
-    public BarrierMessage(final Barrier barrier) {
-        this.barrier = barrier.nextBarrier();
-        this.stepId = ((Step) barrier).getId();
+    public SideEffectMergeMessage(final String sideEffectKey, final Object sideEffect) {
+        this.sideEffect = sideEffect;
+        this.sideEffectKey = sideEffectKey;
     }
 
-    public Object getBarrier() {
-        return this.barrier;
+    public String getKey() {
+        return this.sideEffectKey;
     }
 
-    public String getStepId() {
-        return this.stepId;
+    public Object getValue() {
+        return this.sideEffect;
     }
-
-
 }
