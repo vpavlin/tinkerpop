@@ -26,6 +26,17 @@ image::https://raw.githubusercontent.com/apache/tinkerpop/master/docs/static/ima
 TinkerPop 3.2.4 (Release Date: NOT OFFICIALLY RELEASED YET)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+* Fixed a bug in Gremlin-Python around `__.__()` and `__.start()`.
+* Fixed a bug around long serialization in Gremlin-Python when using Python3.
+* Deprecated `TraversalSource.withBindings()` as it is no longer needed in Gremlin-Java and never was needed for other variants.
+* Fixed a bug in Gremlin-Java `Bytecode` where anonymous traversals were not aware of parent bindings.
+* Fixed a bug in Gremlin-Java GraphSON deserialization around `P.within()` and `P.without()`.
+* Converted Spark process suite tests to "integration" tests.
+* Fixed a bug in `InlineFilterStrategy` having to do with folding `HasContainers` into `VertexStep`.
+* Deprecated `HasContainer.makeHasContainers()` which was used to dissect `AndP` and shouldn't be used at the TinkerPop-level.
+* `GraphTraversal.has()` now will try and fold-left `HasContainer` if end step is a `HasContainerHolder`.
+* Created explicit `P`-predicate methods for `GraphTraversal.hasXXX()`.
+* Fixed a bug in `FilterRankStrategy` around `where().by()` ordering.
 * Added another optimization in `RangeByIsCountStrategy`, that removes `count().is()` altogether if it's not needed.
 * Fixed a OLAP `MatchStep.clone()`-bug that occurs when the `match()` is in a local child.
 * Added another optimization in `RangeByIsCountStrategy`, that removes `count().is()` altogether if it's not needed.
@@ -50,11 +61,13 @@ TinkerPop 3.2.4 (Release Date: NOT OFFICIALLY RELEASED YET)
 * Added `ProjectStep.getProjectKeys()` for strategies that rely on such information.
 * Added `VertexFeatures.supportsDuplicateMultiProperties()` for graphs that only support unique values in multi-properties.
 * Deprecated the "performance" tests in `OptIn`.
+* Deprecated `getInstance()` methods in favor of `instance()` for better consistency with the rest of the API.
 * Block calls to "remote" traversal side-effects until the traversal read is complete which signifies an end to iteration.
 * Added `Pick.none` and `Pick.any` to the serializers and importers.
 * Added a class loader to `TraversalStrategies.GlobalCache` which guarantees strategies are registered prior to `GlobalCache.getStrategies()`.
 * Fixed a severe bug where `GraphComputer` strategies are not being loaded until the second use of the traversal source.
 * The root traversal now throws regular `NoSuchElementException` instead of `FastNoSuchElementException`. (*breaking*)
+* Added a short sleep to prevent traversal from finishing before it can be interrupted during `TraversalInterruptionComputerTest`.
 
 [[release-3-2-3]]
 TinkerPop 3.2.3 (Release Date: October 17, 2016)
@@ -547,6 +560,12 @@ TinkerPop 3.1.6 (Release Date: NOT OFFICIALLY RELEASED YET)
 * Fully shutdown metrics services in Gremlin Server on shutdown.
 * Deprecated `tryRandomCommit()` in `AbstractGremlinTest` - the annotation was never added in 3.1.1, and was only deprecated via javadoc.
 * Minor fixes to various test feature requirements in `gremlin-test`.
+* Allow developers to pass options to `docker run` with TINKERPOP_DOCKER_OPTS environment variable
+
+Improvements
+^^^^^^^^^^^^
+
+* TINKERPOP-1556 Allow Hadoop to run on IPv6 systems
 
 [[release-3-1-5]]
 TinkerPop 3.1.5 (Release Date: October 17, 2016)
