@@ -27,6 +27,7 @@ TinkerPop 3.3.0 (Release Date: NOT OFFICIALLY RELEASED YET)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 * Added "attachment requisite" `VertexProperty.element()` and `Property.element()` data in GraphSON serialization.
+* GraphSON 2.0 is now the default serialization format in TinkerGraph and Gremlin Server.
 * Added `Vertex`, `Edge`, `VertexProperty`, and `Property` serializers to Gremlin-Python and exposed tests that use graph object arguments.
 * `Bytecode.getSourceInstructions()` and `Bytecode.getStepInstructions()` now returns `List<Instruction>` instead of `Iterable<Instruction>`.
 * Added various `TraversalStrategy` registrations with `GryoMapper`.
