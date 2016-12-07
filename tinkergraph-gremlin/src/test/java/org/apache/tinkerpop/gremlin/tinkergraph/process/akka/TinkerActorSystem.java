@@ -35,6 +35,8 @@ import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.as;
  */
 public final class TinkerActorSystem {
 
+    public static enum State { START }
+
     private final ActorSystem system;
 
     public TinkerActorSystem(final Traversal.Admin<?, ?> traversal) {

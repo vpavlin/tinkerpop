@@ -48,10 +48,10 @@ public final class WorkerTraversalActor extends AbstractActor {
 
 
         receive(ReceiveBuilder.
-                match(Boolean.class, bool -> {
+                match(TinkerActorSystem.State.class, state -> {
                     final GraphStep step = (GraphStep) this.matrix.getTraversal().getStartStep();
                     while (step.hasNext()) {
-                        self().tell(step.next(), self());
+                        this.processTraverser(step.next());
                     }
                 }).
                 match(Traverser.Admin.class, this::processTraverser).build()

@@ -68,7 +68,7 @@ public final class MasterTraversalActor extends AbstractActor {
             this.workers.add(worker.path());
         }
         for (final ActorPath worker : this.workers) {
-            context().actorSelection(worker).tell(true, self());
+            context().actorSelection(worker).tell(TinkerActorSystem.State.START, self());
         }
     }
 }
