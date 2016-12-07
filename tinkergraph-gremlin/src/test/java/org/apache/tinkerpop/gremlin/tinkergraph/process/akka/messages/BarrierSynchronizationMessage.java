@@ -28,12 +28,18 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.Barrier;
 public final class BarrierSynchronizationMessage implements SynchronizationMessage {
 
     private final String stepId;
+    private final boolean lock;
 
-    public BarrierSynchronizationMessage(final Barrier barrier) {
+    public BarrierSynchronizationMessage(final Barrier barrier, final boolean lock) {
         this.stepId = ((Step) barrier).getId();
+        this.lock = lock;
     }
 
     public String getStepId() {
         return this.stepId;
+    }
+
+    public boolean getLock() {
+        return this.lock;
     }
 }

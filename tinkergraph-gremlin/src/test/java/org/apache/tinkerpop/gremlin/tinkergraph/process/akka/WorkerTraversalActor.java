@@ -52,7 +52,7 @@ public final class WorkerTraversalActor extends AbstractActor implements
     public WorkerTraversalActor(final Traversal.Admin<?, ?> traversal, final Partition partition, final Partitioner partitioner) {
         System.out.println("worker[created]: " + self().path());
         this.matrix = new TraversalMatrix<>(traversal);
-        this.matrix.getTraversal().setSideEffects(new DistributedTraversalSideEffects(this.matrix.getTraversal().getSideEffects(), context()));
+
         this.partition = partition;
         this.partitioner = partitioner;
         ((GraphStep) traversal.getStartStep()).setIteratorSupplier(partition::vertices);
@@ -60,27 +60,31 @@ public final class WorkerTraversalActor extends AbstractActor implements
 
         receive(ReceiveBuilder.
                 match(TinkerActorSystem.State.class, state -> {
+                    this.matrix.getTraversal().setSideEffects(new DistributedTraversalSideEffects(this.matrix.getTraversal().getSideEffects(), context()));
                     final GraphStep step = (GraphStep) this.matrix.getTraversal().getStartStep();
                     while (step.hasNext()) {
                         this.processTraverser(step.next());
                     }
                 }).
                 match(BarrierSynchronizationMessage.class, barrierSync -> {
-                    final Barrier step = this.matrix.getStepById(barrierSync.getStepId());
-                    while (step.hasNextBarrier()) {
-                        sender().tell(new BarrierMessage(step), self());
+                    final Barrier barrier = this.matrix.getStepById(barrierSync.getStepId());
+                    if(barrierSync.getLock()) {
+                        this.processBarrier(barrier);
+                    } else {
+                        barrier.done();
                     }
-                    sender().tell(new BarrierSynchronizationMessage(step), self());
                 }).
                 match(SideEffectMessage.class, sideEffect -> {
-                    sideEffect.setSideEffect(this.matrix.getTraversal());
+                    // TODO: sideEffect.setSideEffect(this.matrix.getTraversal());
                 }).
                 match(HaltSynchronizationMessage.class, haltSync -> {
                     sender().tell(new HaltSynchronizationMessage(true), self());
+                    this.sentHaltMessage = true;
                 }).
                 match(Traverser.Admin.class, traverser -> {
                     if (this.sentHaltMessage) {
                         context().parent().tell(new HaltSynchronizationMessage(false), self());
+                        this.sentHaltMessage = false;
                     }
                     this.processTraverser(traverser);
                 }).build()
@@ -89,7 +93,7 @@ public final class WorkerTraversalActor extends AbstractActor implements
 
     private void processTraverser(final Traverser.Admin traverser) {
         if (traverser.isHalted())
-            context().parent().tell(traverser, ActorRef.noSender());
+            context().parent().tell(traverser, self());
         else if (traverser.get() instanceof Element && !this.partition.contains((Element) traverser.get())) {
             final Partition otherPartition = this.partitioner.getPartition((Element) traverser.get());
             context().actorSelection("../worker-" + otherPartition.hashCode()).tell(traverser, self());
@@ -97,12 +101,19 @@ public final class WorkerTraversalActor extends AbstractActor implements
             final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(traverser.getStepId());
             step.addStart(traverser);
             if (step instanceof Barrier) {
-                context().parent().tell(new BarrierMessage((Barrier) step), self());
+                this.processBarrier((Barrier)step);
             } else {
                 while (step.hasNext()) {
                     this.processTraverser(step.next());
                 }
             }
         }
+    }
+
+    private void processBarrier(final Barrier barrier) {
+        while(barrier.hasNextBarrier()) {
+            context().parent().tell(new BarrierMessage(barrier), self());
+        }
+        context().parent().tell(new BarrierSynchronizationMessage(barrier, true), self());
     }
 }

@@ -39,6 +39,7 @@ public final class SideEffectMessage {
     }
 
     public void addSideEffect(final Traversal.Admin<?, ?> traversal) {
+        System.out.println(traversal.getSideEffects().getClass());
         traversal.getSideEffects().add(this.sideEffectKey, this.sideEffect);
     }
 

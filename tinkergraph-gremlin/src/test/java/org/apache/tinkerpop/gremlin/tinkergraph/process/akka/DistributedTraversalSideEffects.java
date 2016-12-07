@@ -20,6 +20,9 @@
 package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 
 import akka.actor.ActorContext;
+import akka.actor.ActorPath;
+import akka.actor.ActorRef;
+import akka.actor.ActorSelection;
 import org.apache.tinkerpop.gremlin.process.computer.Memory;
 import org.apache.tinkerpop.gremlin.process.computer.ProgramPhase;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSideEffects;
@@ -37,15 +40,16 @@ import java.util.function.UnaryOperator;
 public final class DistributedTraversalSideEffects implements TraversalSideEffects {
 
     private TraversalSideEffects sideEffects;
-    private ActorContext worker;
+    private ActorContext context;
+
 
     private DistributedTraversalSideEffects() {
         // for serialization
     }
 
-    public DistributedTraversalSideEffects(final TraversalSideEffects sideEffects, final ActorContext worker) {
+    public DistributedTraversalSideEffects(final TraversalSideEffects sideEffects, final ActorContext context) {
         this.sideEffects = sideEffects;
-        this.worker = worker;
+        this.context = context;
     }
 
     public TraversalSideEffects getSideEffects() {
@@ -74,7 +78,7 @@ public final class DistributedTraversalSideEffects implements TraversalSideEffec
 
     @Override
     public void add(final String key, final Object value) {
-        this.worker.self().tell(new SideEffectMessage(key, value), this.worker.parent());
+        this.context.parent().tell(new SideEffectMessage(key, value), this.context.self());
     }
 
     @Override

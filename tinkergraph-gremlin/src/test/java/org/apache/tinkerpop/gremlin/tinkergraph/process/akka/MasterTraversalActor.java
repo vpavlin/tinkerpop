@@ -41,8 +41,10 @@ import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffect
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
@@ -53,7 +55,7 @@ public final class MasterTraversalActor extends AbstractActor implements Require
     private final TraversalMatrix<?, ?> matrix;
     private final Partitioner partitioner;
     private List<ActorPath> workers;
-    private final Map<String, Integer> synchronizationCounters = new HashMap<>();
+    private final Map<String, Set<ActorPath>> synchronizationLocks = new HashMap<>();
 
     public MasterTraversalActor(final Traversal.Admin<?, ?> traversal, final Partitioner partitioner) {
         System.out.println("master[created]: " + self().path());
@@ -70,33 +72,39 @@ public final class MasterTraversalActor extends AbstractActor implements Require
                 match(BarrierMessage.class, barrier -> {
                     final Barrier barrierStep = ((Barrier) this.matrix.getStepById(barrier.getStepId()));
                     barrierStep.addBarrier(barrier.getBarrier());
-                    broadcast(new BarrierSynchronizationMessage(barrierStep));
+                    broadcast(new BarrierSynchronizationMessage(barrierStep, true));
                 }).
                 match(BarrierSynchronizationMessage.class, barrierSync -> {
-                    final Integer counter = this.synchronizationCounters.get(barrierSync.getStepId());
-                    final int newCounter = null == counter ? 1 : counter + 1;
-                    this.synchronizationCounters.put(barrierSync.getStepId(), newCounter);
-                    if (newCounter == this.workers.size()) {
+                    Set<ActorPath> locks = this.synchronizationLocks.get(barrierSync.getStepId());
+                    if (null == locks) {
+                        locks = new HashSet<>();
+                        this.synchronizationLocks.put(barrierSync.getStepId(), locks);
+                    }
+                    locks.add(sender().path());
+                    if (locks.size() == this.workers.size()) {
                         final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(barrierSync.getStepId());
+                        this.broadcast(new BarrierSynchronizationMessage((Barrier) step, false));
                         while (step.hasNext()) {
                             this.processTraverser(step.next());
                         }
                     }
                 }).
                 match(SideEffectMessage.class, sideEffect -> {
-                    sideEffect.addSideEffect(this.traversal);
-                    this.broadcast(new SideEffectMessage(sideEffect.getKey(), sideEffect.getValue()));
+                    this.traversal.getSideEffects().add(sideEffect.getKey(),sideEffect.getValue());
+                    //this.broadcast(new SideEffectMessage(sideEffect.getKey(), sideEffect.getValue()));
                 }).
                 match(HaltSynchronizationMessage.class, haltSync -> {
+                    Set<ActorPath> locks = this.synchronizationLocks.get(Traverser.Admin.HALT);
+                    if (null == locks) {
+                        locks = new HashSet<>();
+                        this.synchronizationLocks.put(Traverser.Admin.HALT, locks);
+                    }
                     if (haltSync.isHalt()) {
-                        final Integer counter = this.synchronizationCounters.get(Traverser.Admin.HALT);
-                        final int newCounter = null == counter ? 1 : counter + 1;
-                        this.synchronizationCounters.put(Traverser.Admin.HALT, newCounter);
-                        if (newCounter == this.workers.size()) {
+                        locks.add(sender().path());
+                        if (locks.size() == this.workers.size())
                             context().system().terminate();
-                        }
                     } else {
-                        this.synchronizationCounters.remove(Traverser.Admin.HALT);
+                        locks.remove(sender().path());
                         this.broadcast(new HaltSynchronizationMessage(true));
                     }
                 }).build());

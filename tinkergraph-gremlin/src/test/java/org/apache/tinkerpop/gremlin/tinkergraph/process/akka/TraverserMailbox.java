@@ -30,6 +30,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMessage;
 import scala.Option;
 
 import java.util.Queue;
@@ -39,18 +40,25 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
-public class TraverserMailbox implements MailboxType, ProducesMessageQueue<TraverserMailbox.TraverserMessageQueue> {
+public final class TraverserMailbox implements MailboxType, ProducesMessageQueue<TraverserMailbox.TraverserMessageQueue> {
 
     public static class TraverserMessageQueue implements MessageQueue, TraverserSetSemantics {
         private final TraverserSet<?> traverserSet = new TraverserSet<>(new ConcurrentHashMap<>());
         private final Queue<Envelope> barrierSyncs = new ConcurrentLinkedQueue<>();
         private final Queue<Envelope> haltSyncs = new ConcurrentLinkedQueue<>();
         private final Queue<Envelope> queue = new ConcurrentLinkedQueue<>();
+        private final ActorRef owner;
+
+        public TraverserMessageQueue(final ActorRef owner) {
+            this.owner = owner;
+        }
 
         // these must be implemented; queue used as example
         public void enqueue(final ActorRef receiver, final Envelope handle) {
             if (handle.message() instanceof Traverser.Admin)
                 this.traverserSet.offer((Traverser.Admin) handle.message());
+            else if (handle.message() instanceof SideEffectMessage)
+                this.queue.offer(handle);
             else if (handle.message() instanceof BarrierSynchronizationMessage)
                 this.barrierSyncs.offer(handle);
             else if (handle.message() instanceof HaltSynchronizationMessage)
@@ -63,7 +71,7 @@ public class TraverserMailbox implements MailboxType, ProducesMessageQueue<Trave
             if (!this.queue.isEmpty())
                 return this.queue.poll();
             else if (!this.traverserSet.isEmpty())
-                return new Envelope(this.traverserSet.poll(), ActorRef.noSender());
+                return new Envelope(this.traverserSet.poll(), this.owner);
             else if (!this.barrierSyncs.isEmpty())
                 return this.barrierSyncs.poll();
             else
@@ -92,7 +100,7 @@ public class TraverserMailbox implements MailboxType, ProducesMessageQueue<Trave
 
     // The create method is called to create the MessageQueue
     public MessageQueue create(final Option<ActorRef> owner, final Option<ActorSystem> system) {
-        return new TraverserMessageQueue();
+        return new TraverserMessageQueue(owner.isEmpty() ? ActorRef.noSender() : owner.get());
     }
 
     public static interface TraverserSetSemantics {
