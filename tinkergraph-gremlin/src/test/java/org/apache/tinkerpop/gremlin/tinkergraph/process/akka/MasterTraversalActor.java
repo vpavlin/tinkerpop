@@ -23,6 +23,7 @@ import akka.actor.AbstractActor;
 import akka.actor.ActorPath;
 import akka.actor.ActorRef;
 import akka.actor.Props;
+import akka.dispatch.RequiresMessageQueue;
 import akka.japi.pf.ReceiveBuilder;
 import org.apache.tinkerpop.gremlin.process.computer.traversal.step.map.TraversalVertexProgramStep;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -36,7 +37,8 @@ import java.util.List;
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
-public final class MasterTraversalActor extends AbstractActor {
+public final class MasterTraversalActor extends AbstractActor implements
+        RequiresMessageQueue<TraverserMailbox.TraverserSetSemantics> {
 
     private Traversal.Admin<?, ?> traversal;
     private final Partitioner partitioner;
@@ -64,7 +66,9 @@ public final class MasterTraversalActor extends AbstractActor {
         final List<Partition> partitions = this.partitioner.getPartitions();
         this.workers = new ArrayList<>(partitions.size());
         for (final Partition partition : partitions) {
-            final ActorRef worker = context().actorOf(Props.create(WorkerTraversalActor.class, this.traversal.clone(), partition, this.partitioner), "worker-" + partition.hashCode());
+            final ActorRef worker = context().actorOf(Props.
+                            create(WorkerTraversalActor.class, this.traversal.clone(), partition, this.partitioner),
+                    "worker-" + partition.hashCode());
             this.workers.add(worker.path());
         }
         for (final ActorPath worker : this.workers) {

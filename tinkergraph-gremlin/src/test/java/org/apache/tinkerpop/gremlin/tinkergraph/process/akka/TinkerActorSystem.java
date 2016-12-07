@@ -21,6 +21,7 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 
 import akka.actor.ActorSystem;
 import akka.actor.Props;
+import com.typesafe.config.Config;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -35,15 +36,15 @@ import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.as;
  */
 public final class TinkerActorSystem {
 
-    public static enum State { START }
+    public static enum State {START}
 
     private final ActorSystem system;
 
     public TinkerActorSystem(final Traversal.Admin<?, ?> traversal) {
+        final Config config;
+
         this.system = ActorSystem.create("traversal-" + traversal.hashCode());
-        this.system.actorOf(Props.create(MasterTraversalActor.class,
-                traversal,
-                new HashPartitioner(traversal.getGraph().get().partitioner(), 5)), "master");
+        this.system.actorOf(Props.create(MasterTraversalActor.class, traversal, new HashPartitioner(traversal.getGraph().get().partitioner(), 5)),"master");
     }
 
     public void close() {

@@ -20,6 +20,7 @@
 package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 
 import akka.actor.AbstractActor;
+import akka.dispatch.RequiresMessageQueue;
 import akka.japi.pf.ReceiveBuilder;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -33,7 +34,8 @@ import org.apache.tinkerpop.gremlin.structure.Partitioner;
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
-public final class WorkerTraversalActor extends AbstractActor {
+public final class WorkerTraversalActor extends AbstractActor implements
+        RequiresMessageQueue<TraverserMailbox.TraverserSetSemantics> {
 
     private final TraversalMatrix<?, ?> matrix;
     private final Partition partition;
