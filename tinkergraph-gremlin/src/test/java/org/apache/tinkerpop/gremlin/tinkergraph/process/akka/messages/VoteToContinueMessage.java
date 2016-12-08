@@ -22,14 +22,13 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages;
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
-public final class StartMessage {
+public final class VoteToContinueMessage {
 
-    private static final StartMessage INSTANCE = new StartMessage();
+    private static final VoteToContinueMessage INSTANCE = new VoteToContinueMessage();
 
-    private StartMessage() {
-    }
+    private VoteToContinueMessage() {}
 
-    public static StartMessage instance() {
+    public static VoteToContinueMessage instance() {
         return INSTANCE;
     }
 }

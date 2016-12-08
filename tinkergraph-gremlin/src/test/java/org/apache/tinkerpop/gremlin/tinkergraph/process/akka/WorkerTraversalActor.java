@@ -37,6 +37,7 @@ import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierAdd
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierDoneMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectAddMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.StartMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.VoteToContinueMessage;
 import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.VoteToHaltMessage;
 
 import java.util.HashMap;
@@ -72,40 +73,47 @@ public final class WorkerTraversalActor extends AbstractActor implements
                         this.sendTraverser(step.next());
                     }
                     // internal vote to have in mailbox as final message to process
-                    self().tell(new VoteToHaltMessage(true), self());
+                    self().tell(VoteToHaltMessage.instance(), self());
+                    this.voteToHalt = false;
                 }).
                 match(Traverser.Admin.class, traverser -> {
                     if (this.voteToHalt) {
                         // tell master you no longer want to halt
-                        master().tell(new VoteToHaltMessage(false), self());
+                        master().tell(VoteToContinueMessage.instance(), self());
                         // internal vote to have in mailbox as final message to process
-                        self().tell(new VoteToHaltMessage(true), self());
+                        self().tell(VoteToHaltMessage.instance(), self());
                         this.voteToHalt = false;
                     }
                     this.processTraverser(traverser);
                 }).
                 match(SideEffectAddMessage.class, sideEffect -> {
-                    // TODO: sideEffect.setSideEffect(this.matrix.getTraversal());
+                  // TODO
                 }).
                 match(BarrierDoneMessage.class, barrierSync -> {
                     // barrier is complete and processing can continue
                     if (null != this.barrierLock) {
                         this.barrierLock.done();
                         this.barrierLock = null;
-                        // internal vote to have in mailbox as final message to process
-                        self().tell(new VoteToHaltMessage(true), self());
                     }
+                    // internal vote to have in mailbox as final message to process
+                    self().tell(VoteToHaltMessage.instance(), self());
+                    this.voteToHalt = false;
                 }).
                 match(VoteToHaltMessage.class, haltSync -> {
+                    assert sender().equals(self());
+                    boolean hasBarrier = null != this.barrierLock && this.barrierLock.hasNextBarrier();
                     // if there is a barrier and thus, halting at barrier, then process barrier
-                    if (null != this.barrierLock) {
+                    if (hasBarrier) {
                         while (this.barrierLock.hasNextBarrier()) {
                             master().tell(new BarrierAddMessage(this.barrierLock), self());
                         }
+                        self().tell(VoteToHaltMessage.instance(), self());
+                        this.voteToHalt = false;
+                    } else if (!this.voteToHalt) {
+                        // the final message in the worker mail box, tell master you are done processing messages
+                        master().tell(VoteToHaltMessage.instance(), self());
+                        this.voteToHalt = true;
                     }
-                    // the final message in the worker mail box, tell master you are done processing messages
-                    master().tell(new VoteToHaltMessage(true), self());
-                    this.voteToHalt = true;
                 }).build()
         );
     }
@@ -138,6 +146,21 @@ public final class WorkerTraversalActor extends AbstractActor implements
             worker.tell(traverser, self());
         } else
             self().tell(traverser, self());
+    }
+
+    private void voteToHalt() {
+        if (!this.voteToHalt) {
+            master().tell(VoteToHaltMessage.instance(), self());
+            this.voteToHalt = true;
+        }
+    }
+
+    private void voteToContinue() {
+        if (this.voteToHalt) {
+            master().tell(VoteToContinueMessage.instance(), self());
+        }
+        self().tell(VoteToHaltMessage.instance(), self());
+        this.voteToHalt = false;
     }
 
     private ActorRef master() {

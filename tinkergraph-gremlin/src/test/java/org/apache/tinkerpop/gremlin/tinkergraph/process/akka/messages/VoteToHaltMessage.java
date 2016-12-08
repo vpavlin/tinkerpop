@@ -24,13 +24,11 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages;
  */
 public final class VoteToHaltMessage implements SynchronizationMessage {
 
-    private final boolean voteToHalt;
+    private static final VoteToHaltMessage INSTANCE = new VoteToHaltMessage();
 
-    public VoteToHaltMessage(final boolean voteToHalt) {
-        this.voteToHalt = voteToHalt;
-    }
+    private VoteToHaltMessage() {}
 
-    public boolean voteToHalt() {
-        return this.voteToHalt;
+    public static VoteToHaltMessage instance() {
+        return INSTANCE;
     }
 }

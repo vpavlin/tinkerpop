@@ -53,37 +53,39 @@ public final class TinkerActorSystem {
     //////////////
 
     public static void main(String args[]) throws Exception {
-        final Graph graph = TinkerGraph.open();
-        graph.io(GryoIo.build()).readGraph("data/tinkerpop-modern.kryo");
-        final GraphTraversalSource g = graph.traversal().withComputer();
-        final List<Traversal.Admin<?, ?>> traversals = Arrays.asList(
-                // match() works
-                g.V().match(
-                        as("a").out("created").as("b"),
-                        as("b").in("created").as("c"),
-                        as("b").has("name", P.eq("lop"))).where("a", P.neq("c")).select("a", "b", "c").by("name").asAdmin(),
-                // side-effects work
-                g.V().repeat(both()).times(2).
-                        groupCount("a").by("name").
-                        cap("a").
-                        unfold().
-                        order().by(Column.values, Order.decr).limit(3).asAdmin(),
-                // barriers work and beyond the local star graph works
-                g.V().repeat(both()).times(2).hasLabel("person").
-                        group().
-                        by("name").
-                        by(out("created").values("name").dedup().fold()).asAdmin(),
-                // no results works
-                g.V().out("blah").asAdmin()
-        );
-        for (final Traversal.Admin<?, ?> traversal : traversals) {
-            System.out.println("EXECUTING: " + traversal.getBytecode());
-            final TinkerActorSystem actors = new TinkerActorSystem(traversal.clone());
-            while (!actors.system.isTerminated()) {
+        for(int i=0; i<100; i++) {
+            final Graph graph = TinkerGraph.open();
+            graph.io(GryoIo.build()).readGraph("data/tinkerpop-modern.kryo");
+            final GraphTraversalSource g = graph.traversal().withComputer();
+            final List<Traversal.Admin<?, ?>> traversals = Arrays.asList(
+                    // match() works
+                    g.V().match(
+                            as("a").out("created").as("b"),
+                            as("b").in("created").as("c"),
+                            as("b").has("name", P.eq("lop"))).where("a", P.neq("c")).select("a", "b", "c").by("name").asAdmin(),
+                    // side-effects work
+                    /*g.V().repeat(both()).times(2).
+                            groupCount("a").by("name").
+                            cap("a").
+                            unfold().
+                            order().by(Column.values, Order.decr).limit(3).asAdmin(),*/
+                    // barriers work and beyond the local star graph works
+                    g.V().repeat(both()).times(2).hasLabel("person").
+                            group().
+                            by("name").
+                            by(out("created").values("name").dedup().fold()).asAdmin(),
+                    // no results works
+                    g.V().out("blah").asAdmin()
+            );
+            for (final Traversal.Admin<?, ?> traversal : traversals) {
+                System.out.println("EXECUTING: " + traversal.getBytecode());
+                final TinkerActorSystem actors = new TinkerActorSystem(traversal.clone());
+                while (!actors.system.isTerminated()) {
 
+                }
+                //System.out.println(traversal.toList());
+                System.out.println("//////////////////////////////////\n");
             }
-            //System.out.println(traversal.toList());
-            System.out.println("//////////////////////////////////\n");
         }
     }
 
