@@ -24,6 +24,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A TraversalMatrix provides random, non-linear access to the steps of a traversal by their step id.
@@ -43,6 +44,10 @@ public final class TraversalMatrix<S, E> {
 
     public <A, B, C extends Step<A, B>> C getStepById(final String stepId) {
         return (C) this.matrix.get(stepId);
+    }
+
+    public Set<String> getStepIds() {
+        return this.matrix.keySet();
     }
 
     public Traversal.Admin<S, E> getTraversal() {

@@ -28,9 +28,9 @@ import akka.dispatch.ProducesMessageQueue;
 import com.typesafe.config.Config;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMergeMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierDoneMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.VoteToHaltMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectAddMessage;
 import scala.Option;
 
 import java.util.Queue;
@@ -57,11 +57,11 @@ public final class TraverserMailbox implements MailboxType, ProducesMessageQueue
         public void enqueue(final ActorRef receiver, final Envelope handle) {
             if (handle.message() instanceof Traverser.Admin)
                 this.traverserSet.offer((Traverser.Admin) handle.message());
-            else if (handle.message() instanceof SideEffectMergeMessage)
+            else if (handle.message() instanceof SideEffectAddMessage)
                 this.queue.offer(handle);
-            else if (handle.message() instanceof BarrierSynchronizationMessage)
+            else if (handle.message() instanceof BarrierDoneMessage)
                 this.barrierSyncs.offer(handle);
-            else if (handle.message() instanceof HaltSynchronizationMessage)
+            else if (handle.message() instanceof VoteToHaltMessage)
                 this.haltSyncs.offer(handle);
             else
                 this.queue.offer(handle);

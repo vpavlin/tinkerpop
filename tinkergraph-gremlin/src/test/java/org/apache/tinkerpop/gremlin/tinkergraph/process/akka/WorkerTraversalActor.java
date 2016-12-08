@@ -20,6 +20,7 @@
 package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 
 import akka.actor.AbstractActor;
+import akka.actor.ActorRef;
 import akka.actor.ActorSelection;
 import akka.dispatch.RequiresMessageQueue;
 import akka.japi.pf.ReceiveBuilder;
@@ -27,17 +28,16 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.Barrier;
-import org.apache.tinkerpop.gremlin.process.traversal.step.Bypassing;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalMatrix;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Partition;
 import org.apache.tinkerpop.gremlin.structure.Partitioner;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierMergeMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMergeMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.StartSynchronizationMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierAddMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierDoneMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectAddMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.StartMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.VoteToHaltMessage;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -48,11 +48,13 @@ import java.util.Map;
 public final class WorkerTraversalActor extends AbstractActor implements
         RequiresMessageQueue<TraverserMailbox.TraverserSetSemantics> {
 
-    private final TraversalMatrix<?, ?> matrix;
+    private TraversalMatrix<?, ?> matrix = null;
     private final Partition localPartition;
     private final Partitioner partitioner;
-    private boolean sentHaltMessage = false;
+    private boolean voteToHalt = false;
     private final Map<String, ActorSelection> workers = new HashMap<>();
+
+    private Barrier barrierLock = null;
 
     public WorkerTraversalActor(final Traversal.Admin<?, ?> traversal, final Partition localPartition, final Partitioner partitioner) {
         System.out.println("worker[created]: " + self().path());
@@ -63,40 +65,68 @@ public final class WorkerTraversalActor extends AbstractActor implements
         ((GraphStep) traversal.getStartStep()).setIteratorSupplier(localPartition::vertices);
 
         receive(ReceiveBuilder.
-                match(StartSynchronizationMessage.class, start -> {
+                match(StartMessage.class, start -> {
+                    // initial message from master that says: "start processing"
                     final GraphStep step = (GraphStep) this.matrix.getTraversal().getStartStep();
                     while (step.hasNext()) {
-                        this.processTraverser(step.next());
+                        this.sendTraverser(step.next());
                     }
-                }).
-                match(BarrierSynchronizationMessage.class, barrierSync -> {
-                    final Barrier barrier = this.matrix.getStepById(barrierSync.getStepId());
-                    if (barrierSync.getLock()) {
-                        this.processBarrier(barrier);
-                    } else {
-                        barrier.done();
-                    }
-                }).
-                match(SideEffectMergeMessage.class, sideEffect -> {
-                    // TODO: sideEffect.setSideEffect(this.matrix.getTraversal());
-                }).
-                match(HaltSynchronizationMessage.class, haltSync -> {
-                    sender().tell(new HaltSynchronizationMessage(true), self());
-                    this.sentHaltMessage = true;
+                    // internal vote to have in mailbox as final message to process
+                    self().tell(new VoteToHaltMessage(true), self());
                 }).
                 match(Traverser.Admin.class, traverser -> {
-                    if (this.sentHaltMessage) {
-                        context().parent().tell(new HaltSynchronizationMessage(false), self());
-                        this.sentHaltMessage = false;
+                    if (this.voteToHalt) {
+                        // tell master you no longer want to halt
+                        master().tell(new VoteToHaltMessage(false), self());
+                        // internal vote to have in mailbox as final message to process
+                        self().tell(new VoteToHaltMessage(true), self());
+                        this.voteToHalt = false;
                     }
                     this.processTraverser(traverser);
+                }).
+                match(SideEffectAddMessage.class, sideEffect -> {
+                    // TODO: sideEffect.setSideEffect(this.matrix.getTraversal());
+                }).
+                match(BarrierDoneMessage.class, barrierSync -> {
+                    // barrier is complete and processing can continue
+                    if (null != this.barrierLock) {
+                        this.barrierLock.done();
+                        this.barrierLock = null;
+                        // internal vote to have in mailbox as final message to process
+                        self().tell(new VoteToHaltMessage(true), self());
+                    }
+                }).
+                match(VoteToHaltMessage.class, haltSync -> {
+                    // if there is a barrier and thus, halting at barrier, then process barrier
+                    if (null != this.barrierLock) {
+                        while (this.barrierLock.hasNextBarrier()) {
+                            master().tell(new BarrierAddMessage(this.barrierLock), self());
+                        }
+                    }
+                    // the final message in the worker mail box, tell master you are done processing messages
+                    master().tell(new VoteToHaltMessage(true), self());
+                    this.voteToHalt = true;
                 }).build()
         );
     }
 
     private void processTraverser(final Traverser.Admin traverser) {
+        assert !(traverser.get() instanceof Element) || !traverser.isHalted() || this.localPartition.contains((Element) traverser.get());
+        final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(traverser.getStepId());
+        step.addStart(traverser);
+        if (step instanceof Barrier) {
+            assert null == this.barrierLock || step == this.barrierLock;
+            this.barrierLock = (Barrier) step;
+        } else {
+            while (step.hasNext()) {
+                this.sendTraverser(step.next());
+            }
+        }
+    }
+
+    private void sendTraverser(final Traverser.Admin traverser) {
         if (traverser.isHalted())
-            context().parent().tell(traverser, self());
+            master().tell(traverser, self());
         else if (traverser.get() instanceof Element && !this.localPartition.contains((Element) traverser.get())) {
             final Partition otherPartition = this.partitioner.getPartition((Element) traverser.get());
             final String workerPathString = "../worker-" + otherPartition.hashCode();
@@ -106,25 +136,11 @@ public final class WorkerTraversalActor extends AbstractActor implements
                 this.workers.put(workerPathString, worker);
             }
             worker.tell(traverser, self());
-        } else {
-            final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(traverser.getStepId());
-            step.addStart(traverser);
-            if (step instanceof Barrier) {
-                this.processBarrier((Barrier) step);
-            } else {
-                while (step.hasNext()) {
-                    this.processTraverser(step.next());
-                }
-            }
-        }
+        } else
+            self().tell(traverser, self());
     }
 
-    private void processBarrier(final Barrier barrier) {
-        if (barrier instanceof Bypassing)
-            ((Bypassing) barrier).setBypass(true);
-        while (barrier.hasNextBarrier()) {
-            context().parent().tell(new BarrierMergeMessage(barrier), self());
-        }
-        context().parent().tell(new BarrierSynchronizationMessage(barrier, true), self());
+    private ActorRef master() {
+        return context().parent();
     }
 }

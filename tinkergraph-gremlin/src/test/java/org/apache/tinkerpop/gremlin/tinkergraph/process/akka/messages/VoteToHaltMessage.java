@@ -22,11 +22,15 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages;
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
-public final class StartSynchronizationMessage {
+public final class VoteToHaltMessage implements SynchronizationMessage {
 
-    private static final StartSynchronizationMessage INSTANCE = new StartSynchronizationMessage();
+    private final boolean voteToHalt;
 
-    public static StartSynchronizationMessage instance() {
-        return INSTANCE;
+    public VoteToHaltMessage(final boolean voteToHalt) {
+        this.voteToHalt = voteToHalt;
+    }
+
+    public boolean voteToHalt() {
+        return this.voteToHalt;
     }
 }

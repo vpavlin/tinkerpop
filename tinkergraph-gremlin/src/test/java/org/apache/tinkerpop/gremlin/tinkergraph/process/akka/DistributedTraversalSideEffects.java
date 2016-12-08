@@ -21,7 +21,7 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 
 import akka.actor.ActorContext;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalSideEffects;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMergeMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectAddMessage;
 
 import java.util.Optional;
 import java.util.Set;
@@ -73,7 +73,7 @@ public final class DistributedTraversalSideEffects implements TraversalSideEffec
 
     @Override
     public void add(final String key, final Object value) {
-        this.context.parent().tell(new SideEffectMergeMessage(key, value), this.context.self());
+        this.context.parent().tell(new SideEffectAddMessage(key, value), this.context.self());
     }
 
     @Override

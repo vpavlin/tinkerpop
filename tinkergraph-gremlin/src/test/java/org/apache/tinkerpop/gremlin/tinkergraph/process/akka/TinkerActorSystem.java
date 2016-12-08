@@ -21,6 +21,7 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka;
 
 import akka.actor.ActorSystem;
 import akka.actor.Props;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
@@ -65,19 +66,23 @@ public final class TinkerActorSystem {
                 g.V().repeat(both()).times(2).
                         groupCount("a").by("name").
                         cap("a").
-                        select(Column.keys).unfold().limit(3).asAdmin(),
-                // barries work and beyond the local star graph works
+                        unfold().
+                        order().by(Column.values, Order.decr).limit(3).asAdmin(),
+                // barriers work and beyond the local star graph works
                 g.V().repeat(both()).times(2).hasLabel("person").
                         group().
                         by("name").
-                        by(out("created").values("name").dedup().fold()).asAdmin()
+                        by(out("created").values("name").dedup().fold()).asAdmin(),
+                // no results works
+                g.V().out("blah").asAdmin()
         );
         for (final Traversal.Admin<?, ?> traversal : traversals) {
             System.out.println("EXECUTING: " + traversal.getBytecode());
-            final TinkerActorSystem actors = new TinkerActorSystem(traversal);
+            final TinkerActorSystem actors = new TinkerActorSystem(traversal.clone());
             while (!actors.system.isTerminated()) {
 
             }
+            //System.out.println(traversal.toList());
             System.out.println("//////////////////////////////////\n");
         }
     }

@@ -38,17 +38,15 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalMatrix;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Partition;
 import org.apache.tinkerpop.gremlin.structure.Partitioner;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierMergeMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierSynchronizationMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.HaltSynchronizationMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectMergeMessage;
-import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.StartSynchronizationMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierAddMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.BarrierDoneMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.SideEffectAddMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.StartMessage;
+import org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages.VoteToHaltMessage;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -60,7 +58,8 @@ public final class MasterTraversalActor extends AbstractActor implements Require
     private final TraversalMatrix<?, ?> matrix;
     private final Partitioner partitioner;
     private List<ActorSelection> workers;
-    private final Map<String, Set<ActorPath>> synchronizationLocks = new HashMap<>();
+    private final Set<ActorPath> haltSynchronization = new HashSet<>();
+    private Barrier barrierLock = null;
 
     public MasterTraversalActor(final Traversal.Admin<?, ?> traversal, final Partitioner partitioner) {
         System.out.println("master[created]: " + self().path());
@@ -78,44 +77,37 @@ public final class MasterTraversalActor extends AbstractActor implements Require
                 match(Traverser.Admin.class, traverser -> {
                     this.processTraverser(traverser);
                 }).
-                match(BarrierMergeMessage.class, barrier -> {
-                    final Barrier barrierStep = ((Barrier) this.matrix.getStepById(barrier.getStepId()));
-                    barrierStep.addBarrier(barrier.getBarrier());
-                    broadcast(new BarrierSynchronizationMessage(barrierStep, true));
+                match(BarrierAddMessage.class, barrierMerge -> {
+                    final Barrier barrier = (Barrier) this.matrix.getStepById(barrierMerge.getStepId());
+                    assert null == this.barrierLock || this.barrierLock == barrier;
+                    this.barrierLock = barrier;
+                    this.barrierLock.addBarrier(barrierMerge.getBarrier());
                 }).
-                match(BarrierSynchronizationMessage.class, barrierSync -> {
-                    Set<ActorPath> locks = this.synchronizationLocks.get(barrierSync.getStepId());
-                    if (null == locks) {
-                        locks = new HashSet<>();
-                        this.synchronizationLocks.put(barrierSync.getStepId(), locks);
-                    }
-                    locks.add(sender().path());
-                    if (locks.size() == this.workers.size()) {
-                        final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(barrierSync.getStepId());
-                        this.broadcast(new BarrierSynchronizationMessage((Barrier) step, false));
-                        while (step.hasNext()) {
-                            this.processTraverser(step.next());
+                match(SideEffectAddMessage.class, sideEffect -> {
+                    this.traversal.getSideEffects().add(sideEffect.getSideEffectKey(), sideEffect.getSideEffectValue());
+                    //this.broadcast(new SideEffectAddMessage(sideEffect.getKey(), sideEffect.getValue()));
+                }).
+                match(VoteToHaltMessage.class, haltSync -> {
+                    // receive vote to halt messages from worker
+                    // when all workers  have voted to halt then terminate the system
+                    if (haltSync.voteToHalt()) {
+                        this.haltSynchronization.add(sender().path());
+                        if (this.haltSynchronization.size() == this.workers.size()) {
+                            if (null != this.barrierLock) {
+                                final Step<?, ?> step = (Step) this.barrierLock;
+                                while (step.hasNext()) {
+                                    this.sendTraverser(step.next());
+                                }
+                                // broadcast to all workers that the barrier is unlocked
+                                this.broadcast(new BarrierDoneMessage(this.barrierLock));
+                                this.barrierLock = null;
+                                this.haltSynchronization.clear();
+                            } else
+                                context().system().terminate();
                         }
-                    }
-                }).
-                match(SideEffectMergeMessage.class, sideEffect -> {
-                    this.traversal.getSideEffects().add(sideEffect.getKey(), sideEffect.getValue());
-                    //this.broadcast(new SideEffectMergeMessage(sideEffect.getKey(), sideEffect.getValue()));
-                }).
-                match(HaltSynchronizationMessage.class, haltSync -> {
-                    Set<ActorPath> locks = this.synchronizationLocks.get(Traverser.Admin.HALT);
-                    if (null == locks) {
-                        locks = new HashSet<>();
-                        this.synchronizationLocks.put(Traverser.Admin.HALT, locks);
-                    }
-                    if (haltSync.isHalt()) {
-                        locks.add(sender().path());
-                        if (locks.size() == this.workers.size())
-                            context().system().terminate();
-                    } else {
-                        locks.remove(sender().path());
-                        this.broadcast(new HaltSynchronizationMessage(true));
-                    }
+                    } else
+                        this.haltSynchronization.remove(sender().path());
+
                 }).build());
     }
 
@@ -127,7 +119,7 @@ public final class MasterTraversalActor extends AbstractActor implements Require
             this.workers.add(context().actorSelection(worker.path()));
         }
         for (final ActorSelection worker : this.workers) {
-            worker.tell(StartSynchronizationMessage.instance(), self());
+            worker.tell(StartMessage.instance(), self());
         }
     }
 
@@ -138,20 +130,25 @@ public final class MasterTraversalActor extends AbstractActor implements Require
     }
 
     private void processTraverser(final Traverser.Admin traverser) {
+        if (traverser.isHalted() || traverser.get() instanceof Element) {
+            this.sendTraverser(traverser);
+        } else {
+            final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(traverser.getStepId());
+            step.addStart(traverser);
+            while (step.hasNext()) {
+                this.processTraverser(step.next());
+            }
+        }
+    }
+
+    private void sendTraverser(final Traverser.Admin traverser) {
         if (traverser.isHalted()) {
             System.out.println("master[result]: " + traverser);
-            broadcast(new HaltSynchronizationMessage(true));
+        } else if (traverser.get() instanceof Element) {
+            final Partition otherPartition = this.partitioner.getPartition((Element) traverser.get());
+            context().actorSelection("worker-" + otherPartition.hashCode()).tell(traverser, self());
         } else {
-            if (traverser.get() instanceof Element) {
-                final Partition otherPartition = this.partitioner.getPartition((Element) traverser.get());
-                context().actorSelection("worker-" + otherPartition.hashCode()).tell(traverser, self());
-            } else {
-                final Step<?, ?> step = this.matrix.<Object, Object, Step<Object, Object>>getStepById(traverser.getStepId());
-                step.addStart(traverser);
-                while (step.hasNext()) {
-                    this.processTraverser(step.next());
-                }
-            }
+            self().tell(traverser, self());
         }
     }
 }

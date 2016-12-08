@@ -22,15 +22,21 @@ package org.apache.tinkerpop.gremlin.tinkergraph.process.akka.messages;
 /**
  * @author Marko A. Rodriguez (http://markorodriguez.com)
  */
-public final class HaltSynchronizationMessage implements SynchronizationMessage {
+public final class SideEffectAddMessage {
 
-    private final boolean halt;
+    private final String sideEffectKey;
+    private final Object sideEffect;
 
-    public HaltSynchronizationMessage(final boolean halt) {
-        this.halt = halt;
+    public SideEffectAddMessage(final String sideEffectKey, final Object sideEffect) {
+        this.sideEffect = sideEffect;
+        this.sideEffectKey = sideEffectKey;
     }
 
-    public boolean isHalt() {
-        return this.halt;
+    public String getSideEffectKey() {
+        return this.sideEffectKey;
+    }
+
+    public Object getSideEffectValue() {
+        return this.sideEffect;
     }
 }
