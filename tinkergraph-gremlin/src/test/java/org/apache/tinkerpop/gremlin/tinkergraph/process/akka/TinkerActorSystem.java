@@ -24,14 +24,19 @@ import akka.actor.Props;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
+import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
 import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.io.gryo.GryoIo;
 import org.apache.tinkerpop.gremlin.structure.util.HashPartitioner;
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph;
+import org.apache.tinkerpop.gremlin.util.iterator.IteratorUtils;
+import org.javatuples.Pair;
 
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
 import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.as;
@@ -44,46 +49,53 @@ import static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__.out;
 public final class TinkerActorSystem {
 
     private final ActorSystem system;
+    private TraverserSet results = new TraverserSet();
 
     public TinkerActorSystem(final Traversal.Admin<?, ?> traversal) {
         this.system = ActorSystem.create("traversal-" + traversal.hashCode());
-        this.system.actorOf(Props.create(MasterTraversalActor.class, traversal, new HashPartitioner(traversal.getGraph().get().partitioner(), 3)), "master");
+        this.system.actorOf(Props.create(MasterTraversalActor.class, traversal, new HashPartitioner(traversal.getGraph().get().partitioner(), 3), this.results), "master");
+    }
+
+    public Iterator<Traverser.Admin> getResults() {
+        return this.results.iterator();
     }
 
     //////////////
 
     public static void main(String args[]) throws Exception {
-        for(int i=0; i<100; i++) {
+        for (int i = 0; i < 100; i++) {
             final Graph graph = TinkerGraph.open();
             graph.io(GryoIo.build()).readGraph("data/tinkerpop-modern.kryo");
             final GraphTraversalSource g = graph.traversal().withComputer();
-            final List<Traversal.Admin<?, ?>> traversals = Arrays.asList(
+            final List<Pair<Integer, Traversal.Admin<?, ?>>> traversals = Arrays.asList(
                     // match() works
-                    g.V().match(
+                    Pair.with(6, g.V().match(
                             as("a").out("created").as("b"),
                             as("b").in("created").as("c"),
-                            as("b").has("name", P.eq("lop"))).where("a", P.neq("c")).select("a", "b", "c").by("name").asAdmin(),
+                            as("b").has("name", P.eq("lop"))).where("a", P.neq("c")).select("a", "b", "c").by("name").asAdmin()),
                     // side-effects work
-                    /*g.V().repeat(both()).times(2).
+                    Pair.with(1, g.V().repeat(both()).times(2).
                             groupCount("a").by("name").
-                            cap("a").
-                            unfold().
-                            order().by(Column.values, Order.decr).limit(3).asAdmin(),*/
+                            cap("a").asAdmin()),
                     // barriers work and beyond the local star graph works
-                    g.V().repeat(both()).times(2).hasLabel("person").
+                    Pair.with(1, g.V().repeat(both()).times(2).hasLabel("person").
                             group().
                             by("name").
-                            by(out("created").values("name").dedup().fold()).asAdmin(),
+                            by(out("created").values("name").dedup().fold()).asAdmin()),
                     // no results works
-                    g.V().out("blah").asAdmin()
+                    Pair.with(0, g.V().out("blah").asAdmin())
             );
-            for (final Traversal.Admin<?, ?> traversal : traversals) {
+            for (final Pair<Integer,Traversal.Admin<?, ?>> pair : traversals) {
+                final Integer count = pair.getValue0();
+                final Traversal.Admin<?,?> traversal = pair.getValue1();
                 System.out.println("EXECUTING: " + traversal.getBytecode());
                 final TinkerActorSystem actors = new TinkerActorSystem(traversal.clone());
                 while (!actors.system.isTerminated()) {
 
                 }
-                //System.out.println(traversal.toList());
+                System.out.println(IteratorUtils.asList(actors.getResults()));
+                //if(count != 6 && IteratorUtils.count(actors.getResults()) != count)
+                //   throw new IllegalStateException();
                 System.out.println("//////////////////////////////////\n");
             }
         }

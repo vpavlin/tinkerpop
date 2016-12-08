@@ -87,7 +87,7 @@ public final class WorkerTraversalActor extends AbstractActor implements
                     this.processTraverser(traverser);
                 }).
                 match(SideEffectAddMessage.class, sideEffect -> {
-                  // TODO
+                    // TODO
                 }).
                 match(BarrierDoneMessage.class, barrierSync -> {
                     // barrier is complete and processing can continue
@@ -146,21 +146,6 @@ public final class WorkerTraversalActor extends AbstractActor implements
             worker.tell(traverser, self());
         } else
             self().tell(traverser, self());
-    }
-
-    private void voteToHalt() {
-        if (!this.voteToHalt) {
-            master().tell(VoteToHaltMessage.instance(), self());
-            this.voteToHalt = true;
-        }
-    }
-
-    private void voteToContinue() {
-        if (this.voteToHalt) {
-            master().tell(VoteToContinueMessage.instance(), self());
-        }
-        self().tell(VoteToHaltMessage.instance(), self());
-        this.voteToHalt = false;
     }
 
     private ActorRef master() {

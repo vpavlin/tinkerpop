@@ -34,6 +34,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.Barrier;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.ComputerVerificationStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.StandardVerificationStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalMatrix;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Partition;
@@ -62,8 +63,10 @@ public final class MasterTraversalActor extends AbstractActor implements Require
     private final Map<String, ActorSelection> workers = new HashMap<>();
     private final Set<ActorPath> haltSynchronization = new HashSet<>();
     private Barrier barrierLock = null;
+    private final TraverserSet<?> results;
+    private boolean firstHalt = true;
 
-    public MasterTraversalActor(final Traversal.Admin<?, ?> traversal, final Partitioner partitioner) {
+    public MasterTraversalActor(final Traversal.Admin<?, ?> traversal, final Partitioner partitioner, final TraverserSet<?> results) {
         System.out.println("master[created]: " + self().path());
         final TraversalStrategies strategies = traversal.getStrategies().clone();
         strategies.removeStrategies(ComputerVerificationStrategy.class, StandardVerificationStrategy.class);
@@ -73,6 +76,7 @@ public final class MasterTraversalActor extends AbstractActor implements Require
         this.traversal = ((TraversalVertexProgramStep) traversal.getStartStep()).computerTraversal.get();
         this.matrix = new TraversalMatrix<>(this.traversal);
         this.partitioner = partitioner;
+        this.results = results;
         this.initializeWorkers();
 
         receive(ReceiveBuilder.
@@ -88,7 +92,7 @@ public final class MasterTraversalActor extends AbstractActor implements Require
                 }).
                 match(SideEffectAddMessage.class, sideEffect -> {
                     this.traversal.getSideEffects().add(sideEffect.getSideEffectKey(), sideEffect.getSideEffectValue());
-                    this.haltSynchronization.remove(sender().path());
+                    //this.haltSynchronization.remove(sender().path());
                 }).
                 match(VoteToContinueMessage.class, voteToContinue -> {
                     this.haltSynchronization.remove(sender().path());
@@ -146,7 +150,7 @@ public final class MasterTraversalActor extends AbstractActor implements Require
 
     private void sendTraverser(final Traverser.Admin traverser) {
         if (traverser.isHalted()) {
-            System.out.println("master[result]: " + traverser);
+            this.results.add(traverser);
         } else if (traverser.get() instanceof Element) {
             final Partition partition = this.partitioner.getPartition((Element) traverser.get());
             final ActorRef worker = this.workers.get("worker-" + partition.hashCode()).anchor();
