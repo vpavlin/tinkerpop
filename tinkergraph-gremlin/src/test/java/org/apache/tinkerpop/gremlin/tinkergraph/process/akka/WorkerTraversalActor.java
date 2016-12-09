@@ -74,20 +74,21 @@ public final class WorkerTraversalActor extends AbstractActor implements
                     }
                     // internal vote to have in mailbox as final message to process
                     self().tell(VoteToHaltMessage.instance(), self());
-                    this.voteToHalt = false;
                 }).
                 match(Traverser.Admin.class, traverser -> {
+                    // internal vote to have in mailbox as final message to process
                     if (this.voteToHalt) {
-                        // tell master you no longer want to halt
-                        master().tell(VoteToContinueMessage.instance(), self());
-                        // internal vote to have in mailbox as final message to process
-                        self().tell(VoteToHaltMessage.instance(), self());
                         this.voteToHalt = false;
+                        master().tell(VoteToContinueMessage.instance(), self());
                     }
                     this.processTraverser(traverser);
                 }).
                 match(SideEffectAddMessage.class, sideEffect -> {
                     // TODO
+                }).
+                match(VoteToContinueMessage.class, voteToContinueMessage -> {
+                    this.voteToHalt = false;
+                    self().tell(VoteToHaltMessage.instance(), self());
                 }).
                 match(BarrierDoneMessage.class, barrierSync -> {
                     // barrier is complete and processing can continue
@@ -96,20 +97,22 @@ public final class WorkerTraversalActor extends AbstractActor implements
                         this.barrierLock = null;
                     }
                     // internal vote to have in mailbox as final message to process
-                    self().tell(VoteToHaltMessage.instance(), self());
-                    this.voteToHalt = false;
+                    if (this.voteToHalt) {
+                        this.voteToHalt = false;
+                        master().tell(VoteToContinueMessage.instance(), self());
+                    }
                 }).
                 match(VoteToHaltMessage.class, haltSync -> {
-                    assert sender().equals(self());
-                    boolean hasBarrier = null != this.barrierLock && this.barrierLock.hasNextBarrier();
+                    if (sender().equals(master()))
+                        this.voteToHalt = false;
                     // if there is a barrier and thus, halting at barrier, then process barrier
+                    boolean hasBarrier = null != this.barrierLock && this.barrierLock.hasNextBarrier();
                     if (hasBarrier) {
                         while (this.barrierLock.hasNextBarrier()) {
                             master().tell(new BarrierAddMessage(this.barrierLock), self());
                         }
-                        self().tell(VoteToHaltMessage.instance(), self());
-                        this.voteToHalt = false;
-                    } else if (!this.voteToHalt) {
+                    }
+                    if (!this.voteToHalt) {
                         // the final message in the worker mail box, tell master you are done processing messages
                         master().tell(VoteToHaltMessage.instance(), self());
                         this.voteToHalt = true;

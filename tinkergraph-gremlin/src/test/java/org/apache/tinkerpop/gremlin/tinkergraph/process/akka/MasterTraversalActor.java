@@ -81,21 +81,28 @@ public final class MasterTraversalActor extends AbstractActor implements Require
 
         receive(ReceiveBuilder.
                 match(Traverser.Admin.class, traverser -> {
+                    this.firstHalt = true;
+                    this.haltSynchronization.remove(sender().path());
                     this.processTraverser(traverser);
                 }).
                 match(BarrierAddMessage.class, barrierMerge -> {
+                    this.firstHalt = true;
+                    this.haltSynchronization.remove(sender().path());
                     final Barrier barrier = (Barrier) this.matrix.getStepById(barrierMerge.getStepId());
                     assert null == this.barrierLock || this.barrierLock == barrier;
                     this.barrierLock = barrier;
                     this.barrierLock.addBarrier(barrierMerge.getBarrier());
-                    this.haltSynchronization.remove(sender().path());
+
                 }).
                 match(SideEffectAddMessage.class, sideEffect -> {
+                    this.firstHalt = true;
+                    this.haltSynchronization.remove(sender().path());
                     this.traversal.getSideEffects().add(sideEffect.getSideEffectKey(), sideEffect.getSideEffectValue());
-                    //this.haltSynchronization.remove(sender().path());
                 }).
                 match(VoteToContinueMessage.class, voteToContinue -> {
+                    this.firstHalt = true;
                     this.haltSynchronization.remove(sender().path());
+                    sender().tell(VoteToContinueMessage.instance(), self());
                 }).
                 match(VoteToHaltMessage.class, voteToHalt -> {
                     assert !sender().equals(self());
@@ -103,17 +110,25 @@ public final class MasterTraversalActor extends AbstractActor implements Require
                     // when all workers  have voted to halt then terminate the system
                     this.haltSynchronization.add(sender().path());
                     if (this.haltSynchronization.size() == this.workers.size()) {
-                        if (null != this.barrierLock) {
-                            final Step<?, ?> step = (Step) this.barrierLock;
-                            while (step.hasNext()) {
-                                this.sendTraverser(step.next());
-                            }
-                            // broadcast to all workers that the barrier is unlocked
-                            this.broadcast(new BarrierDoneMessage(this.barrierLock));
-                            this.barrierLock = null;
+                        if (this.firstHalt) {
+                            // a double vote mechanism is in play to ensure the all agents are fully complete
+                            this.firstHalt = false;
                             this.haltSynchronization.clear();
-                        } else
-                            context().system().terminate();
+                            this.broadcast(VoteToHaltMessage.instance());
+                        } else {
+                            if (null != this.barrierLock) {
+                                final Step<?, ?> step = (Step) this.barrierLock;
+                                while (step.hasNext()) {
+                                    this.sendTraverser(step.next());
+                                }
+                                // broadcast to all workers that the barrier is unlocked
+                                this.broadcast(new BarrierDoneMessage(this.barrierLock));
+                                this.barrierLock = null;
+                                this.firstHalt = true;
+                                this.haltSynchronization.clear();
+                            } else
+                                context().system().terminate();
+                        }
                     }
                 }).build());
     }

@@ -63,7 +63,7 @@ public final class TinkerActorSystem {
     //////////////
 
     public static void main(String args[]) throws Exception {
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < 10000; i++) {
             final Graph graph = TinkerGraph.open();
             graph.io(GryoIo.build()).readGraph("data/tinkerpop-modern.kryo");
             final GraphTraversalSource g = graph.traversal().withComputer();
@@ -74,9 +74,9 @@ public final class TinkerActorSystem {
                             as("b").in("created").as("c"),
                             as("b").has("name", P.eq("lop"))).where("a", P.neq("c")).select("a", "b", "c").by("name").asAdmin()),
                     // side-effects work
-                    Pair.with(1, g.V().repeat(both()).times(2).
+                    Pair.with(3, g.V().repeat(both()).times(2).
                             groupCount("a").by("name").
-                            cap("a").asAdmin()),
+                            cap("a").unfold().order().by(Column.values, Order.decr).limit(3).asAdmin()),
                     // barriers work and beyond the local star graph works
                     Pair.with(1, g.V().repeat(both()).times(2).hasLabel("person").
                             group().
@@ -94,8 +94,8 @@ public final class TinkerActorSystem {
 
                 }
                 System.out.println(IteratorUtils.asList(actors.getResults()));
-                //if(count != 6 && IteratorUtils.count(actors.getResults()) != count)
-                //   throw new IllegalStateException();
+                if(IteratorUtils.count(actors.getResults()) != count)
+                   throw new IllegalStateException();
                 System.out.println("//////////////////////////////////\n");
             }
         }
